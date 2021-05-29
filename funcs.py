@@ -25,6 +25,8 @@ def img_divide(img, size, set_sd=20, set_mean=70):
                     block[:] = 0  # black
 
             img[column:height, row:width] = block
+
+
     return img
 
 
