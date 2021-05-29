@@ -1,179 +1,88 @@
-import cv2
-import numpy as np
-from math import pi, floor
-import matplotlib.pyplot as plt
+from funcs import *
 
 
-def imprint(im):
-    plt.figure(1)
-    plt.imshow(im.astype('uint8'), 'gray')
-    plt.show()
+def segment_paragraph(img):
+    r = img.shape[1]/ img.shape[0]
+    vertical_lines = cv2.erode(img, np.ones([40, 1]))
+    img = img-vertical_lines
 
+    img = cv2.erode(img, np.ones([2, 2]))
+    img = cv2.dilate(img, np.ones([1, 3]))
 
-def threshold(img, lowThresholdRatio=0.05, highThresholdRatio=0.09):
-    highThreshold = img.max() * highThresholdRatio;
-    lowThreshold = highThreshold * lowThresholdRatio;
+    horizontal_lines =  cv2.erode(img, np.ones([1, 40]))
+    img = img - horizontal_lines
 
-    M, N = img.shape
-    res = np.zeros((M, N), dtype=np.int32)
+    img = cv2.erode(img, np.ones([2, 2]))
+    img = cv2.dilate(img, np.ones([3, 1]))
 
-    weak = np.int32(25)
-    strong = np.int32(255)
+    morph = cv2.dilate(img, np.ones([1, 400]))
+    morph = cv2.dilate(morph, np.ones([80, 1]))
+    pad = 5
+    morph = np.pad(morph, 5)
+    c = cv2.Canny(morph, 0, 255)
+    imprint(morph)
+    imprint(c)
+    contours, hierarchy = cv2.findContours(c, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours = sorted(contours, key=sort_ar)
 
-    strong_i, strong_j = np.where(img >= highThreshold)
-    zeros_i, zeros_j = np.where(img < lowThreshold)
+    for count in contours[-5:]:
+        x, y, w, h = cv2.boundingRect(count)
+        res = np.zeros((h, w), dtype='uint8')
+        for i in range(h):
+            for j in range(w):
+                res[i, j] = img[y + i -pad, x + j-pad]
+    return img
 
-    weak_i, weak_j = np.where((img <= highThreshold) & (img >= lowThreshold))
-
-    res[strong_i, strong_j] = strong
-    res[weak_i, weak_j] = weak
-
-    return (res, weak, strong)
-
-def non_max_suppression(img, D):
-    M, N = img.shape
-    Z = np.zeros((M, N), dtype=np.int32)
-    angle = D * 180. / np.pi
-    angle[angle < 0] += 180
-
-    for i in range(1, M - 1):
-        for j in range(1, N - 1):
-            try:
-                q = 255
-                r = 255
-
-                # angle 0
-                if (0 <= angle[i, j] < 22.5) or (157.5 <= angle[i, j] <= 180):
-                    q = img[i, j + 1]
-                    r = img[i, j - 1]
-                # angle 45
-                elif 22.5 <= angle[i, j] < 67.5:
-                    q = img[i + 1, j - 1]
-                    r = img[i - 1, j + 1]
-                # angle 90
-                elif 67.5 <= angle[i, j] < 112.5:
-                    q = img[i + 1, j]
-                    r = img[i - 1, j]
-                # angle 135
-                elif 112.5 <= angle[i, j] < 157.5:
-                    q = img[i - 1, j - 1]
-                    r = img[i + 1, j + 1]
-
-                if (img[i, j] >= q) and (img[i, j] >= r):
-                    Z[i, j] = img[i, j]
-                else:
-                    Z[i, j] = 0
-
-            except IndexError as e:
-                pass
-
-    return Z
-
-
-def fft_convolve2d(img, k):
-    # x = np.fft.fft2(img)
-    # y = np.fft.fft2(k, x.shape)
-    # return abs(np.fft.ifft2(x * y))
-    fr = np.fft.fft2(img)
-    fr2 = np.fft.fft2(np.flipud(np.fliplr(k)), fr.shape)
-    m, n = fr.shape
-    cc = np.real(np.fft.ifft2(fr * fr2))
-    cc = cc.astype('uint8')
-
-    return cc
-
-
-def Ix(image):
-    k = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
-    return fft_convolve2d(image, k)
-
-
-def Iy(image):
-    k = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
-    return fft_convolve2d(image, k)
-
-
-def gaussian_kernel(size, sigma):
-    size = floor(int(size) / 2)
-    x, y = np.mgrid[-size:size + 1, -size:size + 1]
-    normal = 1 / (2.0 * pi * np.power(sigma, 2))
-    g = np.exp(-((np.power(x, 2) + np.power(y, 2)) / (2.0 * np.power(sigma, 2)))) * normal
-    return g
-
-
-def Canny(im):
-    im = fft_convolve2d(im, gaussian_kernel(65, 10))
-    # cv2.imshow('g', im.astype('uint8'))
-    # cv2.waitKey(0)
-    ix = Ix(im)
-    iy = Iy(im)
-
-    G = np.sqrt(np.power(ix, 2) + np.power(iy, 2))
-    G = G / G.max() * 255
-
-    theta = np.arctan2(iy, ix)
-    res = non_max_suppression(G, theta)
-    res = res.astype('uint8')
-
-    res = threshold(res)
-    imprint(res)
-    pass
-
-
-def ResizeWithAspectRatio(image, width=None, height=None, inter=cv2.INTER_AREA):
-    dim = None
-    (h, w) = image.shape[:2]
-
-    if width is None and height is None:
-        return image
-    if width is None:
-        r = height / float(h)
-        dim = (int(w * r), height)
-    else:
-        r = width / float(w)
-        dim = (width, int(h * r))
-
-    return cv2.resize(image, dim, interpolation=inter)
-
-
-def homografy(im):
-    limits = np.array([[0, 0], [im.shape[1], 0], [0, im.shape[0]], [im.shape[1], im.shape[0]]])
-    # print(limits)
-    plt.figure(1)
-    plt.imshow(im, 'gray')
-    x = plt.ginput(4, show_clicks=True)
-    x = np.array(x)
-    # print(x)
-
-    h, status = cv2.findHomography(x, limits)
-
-    im_dst = cv2.warpPerspective(im, h, im.shape)
-    return im_dst
-
-
-def tractament(file_path):
-    im = cv2.imread(file_path)
-    im = ResizeWithAspectRatio(im, height=600)
-
-    im_bw = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-
-    im_bw = homografy(im_bw)
-
-    plt.imshow(im_bw, 'gray')
-    plt.show()
-
-    mask = im_bw < 90
-    thresh = np.zeros_like(im_bw)
-    thresh[mask] = 255
-
-    cv2.imshow('image', thresh)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-
-# tractament("image_1.jpeg")
-im = cv2.imread("image_1.jpeg")
+im = cv2.imread("imgs/img14.jpeg")
 
 im_bw = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-imprint(Canny(im_bw))
-# Canny(im_bw)
+can = Canny(im_bw, 30, 255)
+
+cnt = cv2.findContours(can.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+cnts = imutils.grab_contours(cnt)
+cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:5]
+for c in cnts:
+    # approximate the contour
+    peri = cv2.arcLength(c, True)
+    approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+    # if our approximated contour has four points, then we
+    # can assume that we have found our screen
+    if len(approx) == 4:
+        screenCnt = approx
+        break
+screenCnt = screenCnt.reshape(4, 2)
+warped = homografy(im, screenCnt.reshape(4, 2))
+
+im_bw = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+
+bin = img_divide(im_bw, 11, set_mean=70)
+bin = 255 - bin
+
+imprint(bin)
+
+kernel = np.ones((1, 2), 'uint8')
+
+segment_paragraph(bin)
+
+"""
+contours, hierarchy = cv2.findContours(can, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+contours = sorted(contours, key=sort_ar)
+
+imprint(bin)
+if len(contours) == 0:
+    exit(0)
+
+words = []
+for c in contours:
+    if c.shape[0] < 1200:
+        words.append(c)
+
+cv2.drawContours(warped, words, -1, (0, 255, 0), 3)
+imprint(warped)
+x, y, w, h = cv2.boundingRect(txt)
+
+res = np.zeros((h, w), dtype='uint8')
+for i in range(h):
+    for j in range(w):
+        res[i, j] = bin[y + i, x + j]
+"""
