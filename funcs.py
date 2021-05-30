@@ -7,7 +7,7 @@ from imutils.perspective import four_point_transform
 from skimage import transform
 
 
-def img_divide(img, size, set_sd=20, set_mean=70):
+def local_thresholding(img, size, set_sd=20, set_mean=70):
     for column in range(0, img.shape[0], size):
         height = column + size
         for row in range(0, img.shape[1], size):
@@ -216,3 +216,133 @@ def sort_ar(ar):
 def sort_position(ar):
     x, y, w, h = cv2.boundingRect(ar)
     return y
+
+def segment_paragraph(img):
+    vertical_lines = cv2.erode(img, np.ones([40, 1]))
+    img = img - vertical_lines
+
+    img = cv2.erode(img, np.ones([2, 2]))
+    img = cv2.dilate(img, np.ones([1, 3]))
+
+    horizontal_lines = cv2.erode(img, np.ones([1, 40]))
+    img = img - horizontal_lines
+
+    img = cv2.erode(img, np.ones([2, 2]))
+    img = cv2.dilate(img, np.ones([3, 1]))
+
+    morph = cv2.erode(img, np.ones([5, 5]))
+    morph = cv2.dilate(morph, np.ones([5, 5]))
+
+    morph = cv2.dilate(morph, np.ones([1, 400]))
+    morph = cv2.dilate(morph, np.ones([200, 1]))
+    pad = 5
+    morph = np.pad(morph, 5)
+    c = cv2.Canny(morph, 0, 255)
+    contours, hierarchy = cv2.findContours(c, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours = sorted(contours, key=sort_ar)
+    par = contours[-1]
+
+    x, y, w, h = cv2.boundingRect(par)
+    res = np.zeros((h, w), dtype='uint8')
+    for i in range(h):
+        for j in range(w):
+            res[i, j] = img[y + i - pad, x + j - pad]
+
+    return res
+
+
+def segment_line(par):
+    morph = cv2.erode(par, np.ones([15]))
+
+    morph = cv2.dilate(morph, np.ones([1, 400]))
+    morph = cv2.erode(morph, np.ones([15]))
+    morph = cv2.dilate(morph, np.ones([20]))
+    morph = cv2.dilate(morph, np.ones([20, 1]))
+
+    pad = 5
+    morph = np.pad(morph, 5)
+    c = cv2.Canny(morph, 0, 255)
+
+    contours, hierarchy = cv2.findContours(c, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours = sorted(contours, key=sort_position)
+    res = []
+    for con in contours:
+        x, y, w, h = cv2.boundingRect(con)
+        r = np.zeros((h, w), dtype='uint8')
+        for i in range(h):
+            for j in range(w):
+                r[i, j] = par[y + i - pad, x + j - pad]
+        res.append(r)
+    return res
+
+
+def segment_word(line):
+    morph = cv2.erode(line, np.ones([8,5]))
+    morph = cv2.dilate(morph, np.ones([8, 5]))
+
+    morph = cv2.dilate(morph, np.ones([1, 55]))
+
+    h = np.zeros(morph.shape[1])
+    for i, v in enumerate(morph.T):
+        h[i] = np.sum(v)
+
+    aux = h.copy()
+    aux[aux == 0] = np.inf
+    m = min(aux)
+    wordLocations = np.ones(morph.shape[1])
+    for i, v in enumerate(h):
+        if v < m:
+            wordLocations[i] = 0
+
+    d = np.diff(wordLocations)
+
+    startingColumns = np.where(d > 0)[0]
+    endingColumns = np.where(d < 0)[0]
+    ret = []
+    for i in range(len(startingColumns)):
+        subImage = line[:, startingColumns[i]:endingColumns[i]]
+        ret.append(subImage)
+    return ret
+
+
+def segment_character(word):
+    h = np.zeros(word.shape[1])
+    for i, v in enumerate(word.T):
+        h[i] = np.sum(v)
+    aux = h.copy()
+    aux[aux == 0] = np.inf
+    m = min(aux)
+    letterLocations = np.ones(word.shape[1])
+    for i, v in enumerate(h):
+        if v < m:
+            letterLocations[i] = 0
+
+    d = np.diff(letterLocations)
+
+    startingColumns = np.where(d > 0)[0]
+    endingColumns = np.where(d < 0)[0]
+    if endingColumns.shape[0] < startingColumns.shape[0]:
+        endingColumns = np.append(endingColumns, startingColumns.shape[0]-1)
+    if startingColumns.shape[0] < endingColumns.shape[0]:
+        startingColumns = np.append(startingColumns, 0)
+    ret = []
+    for i in range(len(startingColumns)):
+        subImage = word[:, startingColumns[i]:endingColumns[i]]
+        subImage = treat_character(subImage)
+        ret.append(subImage)
+    return ret
+
+
+def treat_character(char):
+    char = np.pad(char, 20)
+    kernel = np.array([
+        [0, 1, 1, 1, 0],
+        [0, 1, 1, 1, 0],
+        [0, 1, 1, 1, 0]], dtype='uint8')
+
+    char = cv2.morphologyEx(char, cv2.MORPH_CLOSE, kernel)
+    mask = char > 0
+    char = char[np.ix_(mask.any(1), mask.any(0))]
+    char = np.pad(char, 3)
+    return char
+
