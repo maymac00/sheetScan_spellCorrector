@@ -1,5 +1,5 @@
 from funcs import *
-
+import cv2
 
 def segment_paragraph(img):
     vertical_lines = cv2.erode(img, np.ones([40, 1]))
@@ -131,7 +131,14 @@ lines = segment_line(par)
 line = lines[10][0]
 imprint(line)
 chars = segment_character(line)
-
+j = []
+for i in range(0, len(chars)):
+    #chars2[i] = cv2.resize(chars[i], dsize=(28, 28), interpolation=cv2.INTER_CUBIC)
+    j.append(cv2.resize(chars[i], dsize=(28, 28), interpolation=cv2.INTER_CUBIC))
+npa = np.asarray(j, dtype=np.float32)
+for i in range(0, len(npa)):
+    cv2.imwrite('imgslletres/letra'+str(i)+'.jpg', npa[i])
+hola = 1
 """
 contours, hierarchy = cv2.findContours(can, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 contours = sorted(contours, key=sort_ar)
