@@ -26,7 +26,6 @@ def img_divide(img, size, set_sd=20, set_mean=70):
 
             img[column:height, row:width] = block
 
-
     return img
 
 
@@ -212,3 +211,8 @@ def getTransformMatrix(points, shp):
 
 def sort_ar(ar):
     return ar.shape[0]
+
+
+def sort_position(ar):
+    x, y, w, h = cv2.boundingRect(ar)
+    return y
